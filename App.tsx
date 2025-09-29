@@ -1,91 +1,81 @@
-import React, { useState, useEffect, use } from "react";
-import { View, Text, Button, StyleSheet, Alert } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, Text, ActivityIndicator, Alert, Button } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as LocalAuthentication from "expo-local-authentication";
+import { useRouter } from "expo-router";
+
 export default function App() {
-  const [isLogin, setIsLogin] = useState(false);
-  const [isBiometricSupported, setIsBiometricSupported] = useState(false);
-  const [isEnrolledAsync, setIsEnrolledAsync] = useState(false);
+  const [checkingToken, setCheckingToken] = useState(true);
+  const [token, setToken] = useState<string | null>(null);
+  const [authenticated, setAuthenticated] = useState(false);
+  const router = useRouter();
+
   useEffect(() => {
-    const checkBiometricSupport = async () => {
-      const hasHardware = await LocalAuthentication.hasHardwareAsync();
-      setIsBiometricSupported(hasHardware);
-      if (!hasHardware) {
-        Alert.alert(
-          "Error",
-          "Biometric authentication is not supported on this device."
-        );
-        return;
-      }
-      const enrolled = await LocalAuthentication.isEnrolledAsync();
-      setIsEnrolledAsync(enrolled);
-      if (!enrolled) {
-        Alert.alert(
-          "Error",
-          "No biometric records found. Please set up biometrics on your device."
-        );
-        return;
-      }
-    };
-    checkBiometricSupport();
-  }, []);
-  const handleLogin = async () => {
-    const handleBiometricAuth = async () => {
+    const checkToken = async () => {
       try {
-        const result = await LocalAuthentication.authenticateAsync({
-          promptMessage: "Authenticate",
-          fallbackLabel: "Enter Passcode",
-          disableDeviceFallback: false,
-        });
-        if (result.success) {
-          setIsLogin(true);
+        const t = await AsyncStorage.getItem("token");
+        if (!t) {
+          router.replace("/signin"); // ถ้าไม่มี token ไปหน้า SignIn
         } else {
-          Alert.alert("Authentication Failed", "Please try again.");
+          setToken(t);
         }
-      } catch (error) {
-        Alert.alert("Error", "An error occurred during authentication.");
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setCheckingToken(false);
       }
     };
-    console.log({ isBiometricSupported, isEnrolledAsync, isLogin });
-    if (isBiometricSupported && isEnrolledAsync && !isLogin)
-      await handleBiometricAuth();
+    checkToken();
+  }, []);
+
+  // ฟังก์ชัน Biometric เรียกหลัง login
+  const handleBiometric = async () => {
+    try {
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const enrolled = await LocalAuthentication.isEnrolledAsync();
+
+      if (!hasHardware || !enrolled) {
+        Alert.alert(
+          "Biometric Error",
+          "Your device does not support biometric authentication or no biometrics enrolled."
+        );
+        return;
+      }
+
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: "Authenticate to enter App",
+        fallbackLabel: "Enter Passcode",
+      });
+
+      if (result.success) {
+        setAuthenticated(true);
+        router.replace("/book");
+      } else {
+        Alert.alert("Authentication Failed", "Cannot enter app");
+      }
+    } catch (err) {
+      console.error(err);
+      Alert.alert("Error", "Something went wrong");
+    }
   };
-  const handleLogout = () => {
-    setIsLogin(false);
-  };
-  return (
-    <View style={styles.container}>
-      {" "}
-      {isLogin ? (
-        <>
-          {" "}
-          <Text>Welcome, you are logged in to Application.</Text>{" "}
-          <Button title="Logout" onPress={handleLogout} />{" "}
-        </>
-      ) : (
-        <>
-          {" "}
-          <Text>Please login to Application.</Text>{" "}
-          <Button title="Login" onPress={handleLogin} />{" "}
-        </>
-      )}{" "}
-    </View>
-  );
+
+  if (checkingToken) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator size="large" />
+        <Text>Checking login status...</Text>
+      </View>
+    );
+  }
+
+  if (token && !authenticated) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <Text>Welcome back! Please authenticate to continue.</Text>
+        <Button title="Authenticate" onPress={handleBiometric} />
+      </View>
+    );
+  }
+
+  return null;
 }
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-    backgroundColor: "#f5f5f5",
-  },
-  heading: { fontSize: 20, fontWeight: "bold", marginBottom: 20 },
-  spacer: { height: 20 },
-  successText: {
-    marginTop: 20,
-    color: "green",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-  failText: { marginTop: 20, color: "red", fontSize: 16 },
-});
